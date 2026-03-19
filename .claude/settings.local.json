@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx --version)",
+      "Bash(node -e \"console.log\\(require.resolve\\(''http-server/bin/http-server''\\)\\)\")",
+      "Bash(npx http-server:*)",
+      "mcp__Claude_Preview__preview_start"
+    ]
+  }
+}

@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PoC - Autofill Data Extraction</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem;
+    }
+
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; color: #f8fafc; }
+    .subtitle { color: #94a3b8; margin-bottom: 2rem; font-size: 0.9rem; text-align: center; }
+
+    /* --- Language toggle --- */
+    .lang-toggle {
+      position: fixed; top: 1rem; right: 1rem; z-index: 100;
+      display: flex; border-radius: 8px; overflow: hidden;
+      border: 1px solid #334155; background: #1e293b;
+    }
+    .lang-btn {
+      padding: 0.4rem 0.9rem; border: none; cursor: pointer;
+      font-size: 0.8rem; font-weight: 600; transition: all .2s;
+      background: transparent; color: #94a3b8;
+    }
+    .lang-btn.active { background: #6366f1; color: #fff; }
+    .lang-btn:hover:not(.active) { background: #334155; }
+
+    /* --- Technique selector tabs --- */
+    .tabs {
+      display: flex; flex-wrap: wrap; gap: 0.5rem;
+      justify-content: center; max-width: 1200px; margin-bottom: 1.5rem;
+    }
+
+    .tab-btn {
+      padding: 0.5rem 1rem; background: #1e293b;
+      border: 1px solid #334155; border-radius: 8px;
+      color: #94a3b8; font-size: 0.8rem; cursor: pointer; transition: all .2s;
+    }
+    .tab-btn:hover { border-color: #6366f1; color: #c7d2fe; }
+    .tab-btn.active { background: #6366f1; border-color: #6366f1; color: #fff; font-weight: 600; }
+
+    .technique-info {
+      background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+      padding: 1.25rem 1.5rem; max-width: 1200px; width: 100%; margin-bottom: 1.5rem;
+    }
+    .technique-info h3 { font-size: 0.95rem; color: #f8fafc; margin-bottom: 0.5rem; }
+    .technique-info .css-code {
+      background: #0f172a; border: 1px solid #334155; border-radius: 6px;
+      padding: 0.75rem 1rem; font-family: 'Courier New', monospace;
+      font-size: 0.8rem; color: #a5b4fc; margin-bottom: 0.75rem; white-space: pre;
+    }
+    .technique-info .expectation { font-size: 0.8rem; color: #94a3b8; line-height: 1.6; }
+    .technique-info .expectation strong { color: #fbbf24; }
+
+    .container {
+      display: flex; gap: 2rem; width: 100%; max-width: 1200px;
+      flex-wrap: wrap; justify-content: center;
+    }
+
+    /* --- Fake form --- */
+    .fake-site {
+      background: #fff; color: #1e293b; border-radius: 12px;
+      padding: 2rem; width: 380px; box-shadow: 0 4px 24px rgba(0,0,0,.4);
+    }
+    .fake-site h2 { font-size: 1.2rem; margin-bottom: 0.25rem; }
+    .fake-site .tagline { font-size: 0.8rem; color: #64748b; margin-bottom: 1.5rem; }
+    .fake-site label {
+      display: block; font-size: 0.8rem; font-weight: 600;
+      color: #475569; margin-bottom: 0.3rem;
+    }
+    .fake-site input[type="text"],
+    .fake-site input[type="email"] {
+      width: 100%; padding: 0.6rem 0.75rem; border: 1px solid #cbd5e1;
+      border-radius: 8px; font-size: 0.9rem; margin-bottom: 1rem;
+      outline: none; transition: border-color .2s;
+    }
+    .fake-site input:focus {
+      border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.15);
+    }
+    .fake-site button {
+      width: 100%; padding: 0.7rem; background: #6366f1; color: #fff;
+      border: none; border-radius: 8px; font-size: 0.95rem;
+      font-weight: 600; cursor: pointer; transition: background .2s;
+    }
+    .fake-site button:hover { background: #4f46e5; }
+
+    /* ====== HIDING TECHNIQUES ====== */
+    .hide-offscreen { position: absolute; left: -9999px; top: -9999px; }
+    .hide-display-none { display: none; }
+    .hide-visibility { visibility: hidden; height: 0; overflow: hidden; }
+    .hide-opacity { opacity: 0; height: 0; overflow: hidden; }
+    .hide-transform { transform: scale(0); height: 0; overflow: hidden; position: absolute; }
+    .hide-clip-path { clip-path: inset(100%); position: absolute; }
+    .hide-size-zero {
+      font-size: 0; color: transparent; height: 0; width: 0;
+      overflow: hidden; padding: 0; border: 0;
+    }
+    .hide-z-index {
+      position: absolute; z-index: -1; opacity: 0.01;
+      top: 0; left: 0; width: 1px; height: 1px; overflow: hidden;
+    }
+    .hide-overflow-clip {
+      position: absolute; width: 1px; height: 1px;
+      overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; padding: 0;
+    }
+
+    /* --- Results panel --- */
+    .results {
+      background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+      padding: 2rem; width: 520px; box-shadow: 0 4px 24px rgba(0,0,0,.4);
+      max-height: 80vh; overflow-y: auto;
+    }
+    .results h2 { font-size: 1.1rem; margin-bottom: 1rem; color: #f1f5f9; }
+    .result-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 0.45rem 0; border-bottom: 1px solid #334155; font-size: 0.82rem;
+    }
+    .result-row:last-child { border-bottom: none; }
+    .result-label { color: #94a3b8; min-width: 130px; }
+    .result-value {
+      color: #f8fafc; font-family: 'Courier New', monospace;
+      font-size: 0.78rem; text-align: right; word-break: break-all;
+    }
+    .result-value.empty { color: #475569; font-style: italic; }
+    .result-value.captured { color: #f87171; font-weight: 600; }
+
+    .badge {
+      display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px;
+      font-size: 0.65rem; font-weight: 600; margin-left: 0.4rem;
+    }
+    .badge.visible { background: #166534; color: #bbf7d0; }
+    .badge.hidden  { background: #991b1b; color: #fecaca; }
+    .badge.blocked { background: #1e3a5f; color: #93c5fd; }
+
+    .warning-box {
+      background: #451a03; border: 1px solid #92400e; border-radius: 8px;
+      padding: 1rem; margin-top: 1.25rem; font-size: 0.8rem;
+      color: #fbbf24; line-height: 1.5;
+    }
+
+    /* --- Comparison table --- */
+    .comparison {
+      background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+      padding: 1.5rem; max-width: 1200px; width: 100%; margin-top: 2rem;
+    }
+    .comparison h2 { font-size: 1.1rem; margin-bottom: 1rem; color: #f1f5f9; }
+    .comparison table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    .comparison th {
+      text-align: left; padding: 0.6rem 0.75rem; background: #0f172a;
+      color: #94a3b8; border-bottom: 1px solid #334155; font-weight: 600; font-size: 0.75rem;
+    }
+    .comparison td {
+      padding: 0.5rem 0.75rem; border-bottom: 1px solid #1e293b; color: #e2e8f0;
+    }
+    .comparison tr:hover td { background: #334155; }
+    .comparison td.status-filled { color: #f87171; font-weight: 600; }
+    .comparison td.status-blocked { color: #4ade80; font-weight: 600; }
+    .comparison td.status-pending { color: #475569; }
+    .status-filled { color: #f87171; font-weight: 600; }
+    .status-blocked { color: #4ade80; font-weight: 600; }
+    .status-pending { color: #475569; }
+
+    .instructions {
+      background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+      padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; max-width: 1200px; width: 100%;
+    }
+    .instructions h2 { font-size: 1rem; margin-bottom: 0.75rem; color: #fbbf24; }
+    .instructions ol {
+      padding-left: 1.25rem; font-size: 0.85rem; color: #94a3b8; line-height: 1.8;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Language toggle -->
+  <div class="lang-toggle">
+    <button class="lang-btn active" data-lang="es">ES</button>
+    <button class="lang-btn" data-lang="en">EN</button>
+  </div>
+
+  <h1 id="page-title"></h1>
+  <p class="subtitle" id="page-subtitle"></p>
+
+  <div class="instructions">
+    <h2 id="instructions-title"></h2>
+    <ol id="instructions-list"></ol>
+  </div>
+
+  <div class="tabs" id="technique-tabs"></div>
+  <div class="technique-info" id="technique-info"></div>
+
+  <div class="container">
+    <div class="fake-site">
+      <h2 id="form-title"></h2>
+      <p class="tagline" id="form-tagline"></p>
+      <form id="trap-form" autocomplete="on">
+        <label for="visible-name" id="label-name"></label>
+        <input type="text" id="visible-name" name="name" autocomplete="name">
+        <label for="visible-email" id="label-email"></label>
+        <input type="email" id="visible-email" name="email" autocomplete="email">
+        <div id="hidden-container"></div>
+        <button type="submit" id="submit-btn"></button>
+      </form>
+    </div>
+
+    <div class="results">
+      <h2 id="results-title"></h2>
+      <div id="results-list"></div>
+      <div class="warning-box" id="warning-text"></div>
+    </div>
+  </div>
+
+  <div class="comparison">
+    <h2 id="comparison-title"></h2>
+    <div id="browser-info" style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem;padding:0.75rem 1rem;background:#0f172a;border-radius:8px;font-size:0.8rem;"></div>
+    <div style="overflow-x:auto;">
+    <table>
+      <thead id="comparison-thead"></thead>
+      <tbody id="comparison-body"></tbody>
+    </table>
+    </div>
+    <p id="comparison-legend" style="margin-top:1rem;font-size:0.75rem;color:#64748b;"></p>
+  </div>
+
+<script>
+// ============================================================
+// i18n TRANSLATIONS
+// ============================================================
+var i18n = {
+  es: {
+    pageTitle: 'PoC: Browser Autofill Data Extraction',
+    pageSubtitle: 'Compara 9 tecnicas de ocultamiento y observa cuales el navegador detecta y bloquea',
+    instructionsTitle: 'Como reproducirlo',
+    step1: 'Selecciona una <strong>tecnica de ocultamiento</strong> en las pestanas de abajo.',
+    step2: 'Hace click en <strong>"Tu nombre"</strong> y selecciona la sugerencia de autofill del navegador.',
+    step3: 'Hace click en <strong>"Suscribirme"</strong> — el panel derecho muestra los campos ocultos capturados.',
+    step4: 'Repeti con cada tecnica para comparar. Los resultados se acumulan en la tabla final.',
+    formTitle: 'Newsletter Tech Weekly',
+    formTagline: 'Recibi novedades de tecnologia cada semana. Solo necesitamos tu nombre.',
+    labelName: 'Tu nombre',
+    labelEmail: 'Tu email',
+    placeholderName: 'Ej: Juan Perez',
+    placeholderEmail: 'juan@ejemplo.com',
+    submitBtn: 'Suscribirme',
+    submitBtnHidden: 'Suscribirme ({n} campos ocultos detectados)',
+    resultsTitle: 'Datos capturados',
+    resultsEmpty: 'Selecciona una tecnica y usa el autofill para ver los resultados.',
+    warningText: '<strong>PoC educativa.</strong><br>Un sitio malicioso enviaria estos datos a un servidor remoto. Los campos ocultos son invisibles pero el navegador puede auto-rellenarlos.',
+    comparisonTitle: 'Tabla comparativa de resultados',
+    thTechnique: 'Tecnica CSS',
+    thTotal: 'Total',
+    legendFilled: 'FILLED',
+    legendFilledDesc: '= el navegador auto-relleno el campo oculto',
+    legendBlocked: 'BLOCKED',
+    legendBlockedDesc: '= el navegador detecto el campo oculto y no lo relleno',
+    legendPending: '--',
+    legendPendingDesc: '= sin probar',
+    badgeVisible: 'VISIBLE',
+    badgeCaptured: 'CAPTURADO',
+    badgeBlocked: 'BLOQUEADO',
+    empty: '(vacio)',
+    // Comparison table headers
+    thAutocompletGroup: 'Atributo autocomplete',
+    thHeuristicEN: 'Heuristica EN',
+    thHeuristicES: 'Heuristica ES',
+    thPlaceholder: 'Placeholder',
+    thTel: 'Tel',
+    thDir: 'Dir',
+    thCC: 'CC#',
+    thPhone: 'Tel',
+    thAddr: 'Dir',
+    thCard: 'Tarj',
+    thTelPH: 'Tel',
+    thCCPH: 'CC#',
+    hiddenCaptured: '<strong>{n}/{t} campos ocultos</strong> fueron auto-rellenados sin tu conocimiento.',
+    hiddenZero: '<strong>0 campos ocultos capturados.</strong> El navegador bloqueo el autofill para esta tecnica.',
+    notTested: 'Sin probar',
+    expectedBehavior: 'Comportamiento esperado',
+    browserLabel: 'Navegador',
+    engineLabel: 'Engine',
+    platformLabel: 'Plataforma',
+    testDateLabel: 'Fecha test',
+    // Technique descriptions
+    tech_offscreen_desc: 'Mueve los campos fuera de la pantalla. Tecnica clasica y la mas usada en ataques reales.',
+    tech_offscreen_exp: 'Chrome/Firefox suelen <strong>NO detectarla</strong> para datos personales. Tarjetas de credito pueden ser bloqueadas en Chrome.',
+    tech_displaynone_desc: 'El campo no se renderiza en el DOM visual. La forma mas obvia de ocultar.',
+    tech_displaynone_exp: 'La mayoria de navegadores modernos <strong>SI detectan esto</strong> y no auto-rellenan campos con display:none.',
+    tech_visibility_desc: 'El campo ocupa espacio pero es invisible. Con height:0 se colapsa.',
+    tech_visibility_exp: 'Chrome <strong>generalmente detecta</strong> visibility:hidden. Firefox es mas inconsistente.',
+    tech_opacity_desc: 'El campo es completamente transparente y colapsado a altura cero.',
+    tech_opacity_exp: 'Muchos navegadores <strong>NO detectan opacity:0</strong> como indicador de campo oculto. Es una de las tecnicas mas efectivas.',
+    tech_transform_desc: 'Escala el campo a tamano cero. Visualmente desaparece pero existe en el DOM.',
+    tech_transform_exp: 'Generalmente <strong>NO detectado</strong>. Los navegadores no suelen inspeccionar transforms para decidir autofill.',
+    tech_clippath_desc: 'Recorta el campo completamente con CSS clip-path. Tecnica moderna.',
+    tech_clippath_exp: 'Tecnica relativamente nueva. La mayoria de navegadores <strong>NO la detectan</strong> como ocultamiento.',
+    tech_sizezero_desc: 'Campo de tamano cero con texto transparente. Existe fisicamente en posicion normal.',
+    tech_sizezero_exp: 'Resultados <strong>mixtos</strong>. Algunos navegadores detectan width/height:0, otros no.',
+    tech_zindex_desc: 'Campo detras del contenido con opacidad casi nula (0.01). Tecnicamente "visible".',
+    tech_zindex_exp: 'Generalmente <strong>NO detectado</strong>. El campo tiene opacidad >0, lo cual bypasea checks de opacity.',
+    tech_sronly_desc: 'Patron "screen-reader only" usado en accesibilidad. Campo de 1px con clip rect.',
+    tech_sronly_exp: 'Generalmente <strong>NO detectado</strong>. Es identico al patron usado para accesibilidad, dificil de distinguir.'
+  },
+  en: {
+    pageTitle: 'PoC: Browser Autofill Data Extraction',
+    pageSubtitle: 'Compare 9 hiding techniques and observe which ones the browser detects and blocks',
+    instructionsTitle: 'How to reproduce',
+    step1: 'Select a <strong>hiding technique</strong> from the tabs below.',
+    step2: 'Click on <strong>"Your name"</strong> and select the browser\'s autofill suggestion.',
+    step3: 'Click <strong>"Subscribe"</strong> — the right panel shows captured hidden fields.',
+    step4: 'Repeat with each technique to compare. Results accumulate in the final table.',
+    formTitle: 'Newsletter Tech Weekly',
+    formTagline: 'Get weekly tech news delivered to your inbox. We only need your name.',
+    labelName: 'Your name',
+    labelEmail: 'Your email',
+    placeholderName: 'E.g.: John Doe',
+    placeholderEmail: 'john@example.com',
+    submitBtn: 'Subscribe',
+    submitBtnHidden: 'Subscribe ({n} hidden fields detected)',
+    resultsTitle: 'Captured data',
+    resultsEmpty: 'Select a technique and use autofill to see results.',
+    warningText: '<strong>Educational PoC.</strong><br>A malicious site would send this data to a remote server. Hidden fields are invisible but the browser may autofill them.',
+    comparisonTitle: 'Comparison table',
+    thTechnique: 'CSS Technique',
+    thTotal: 'Total',
+    legendFilled: 'FILLED',
+    legendFilledDesc: '= the browser autofilled the hidden field',
+    legendBlocked: 'BLOCKED',
+    legendBlockedDesc: '= the browser detected the hidden field and did not fill it',
+    legendPending: '--',
+    legendPendingDesc: '= not tested',
+    badgeVisible: 'VISIBLE',
+    badgeCaptured: 'CAPTURED',
+    badgeBlocked: 'BLOCKED',
+    empty: '(empty)',
+    // Comparison table headers
+    thAutocompletGroup: 'Autocomplete attr',
+    thHeuristicEN: 'Heuristic EN',
+    thHeuristicES: 'Heuristic ES',
+    thPlaceholder: 'Placeholder',
+    thTel: 'Phone',
+    thDir: 'Addr',
+    thCC: 'CC#',
+    thPhone: 'Phone',
+    thAddr: 'Addr',
+    thCard: 'Card',
+    thTelPH: 'Phone',
+    thCCPH: 'CC#',
+    hiddenCaptured: '<strong>{n}/{t} hidden fields</strong> were autofilled without your knowledge.',
+    hiddenZero: '<strong>0 hidden fields captured.</strong> The browser blocked autofill for this technique.',
+    notTested: 'Not tested',
+    expectedBehavior: 'Expected behavior',
+    browserLabel: 'Browser',
+    engineLabel: 'Engine',
+    platformLabel: 'Platform',
+    testDateLabel: 'Test date',
+    tech_offscreen_desc: 'Moves fields off-screen. Classic technique and most used in real attacks.',
+    tech_offscreen_exp: 'Chrome/Firefox usually <strong>do NOT detect it</strong> for personal data. Credit cards may be blocked in Chrome.',
+    tech_displaynone_desc: 'The field is not rendered in the visual DOM. The most obvious way to hide.',
+    tech_displaynone_exp: 'Most modern browsers <strong>DO detect this</strong> and don\'t autofill fields with display:none.',
+    tech_visibility_desc: 'The field takes up space but is invisible. With height:0 it collapses.',
+    tech_visibility_exp: 'Chrome <strong>generally detects</strong> visibility:hidden. Firefox is more inconsistent.',
+    tech_opacity_desc: 'The field is fully transparent and collapsed to zero height.',
+    tech_opacity_exp: 'Many browsers <strong>do NOT detect opacity:0</strong> as a hidden field indicator. One of the most effective techniques.',
+    tech_transform_desc: 'Scales the field to zero size. Visually disappears but exists in the DOM.',
+    tech_transform_exp: 'Generally <strong>NOT detected</strong>. Browsers don\'t usually inspect transforms for autofill decisions.',
+    tech_clippath_desc: 'Clips the field completely with CSS clip-path. Modern technique.',
+    tech_clippath_exp: 'Relatively new technique. Most browsers <strong>do NOT detect it</strong> as hiding.',
+    tech_sizezero_desc: 'Zero-size field with transparent text. Physically exists in normal position.',
+    tech_sizezero_exp: '<strong>Mixed</strong> results. Some browsers detect width/height:0, others don\'t.',
+    tech_zindex_desc: 'Field behind content with near-zero opacity (0.01). Technically "visible".',
+    tech_zindex_exp: 'Generally <strong>NOT detected</strong>. The field has opacity >0, which bypasses opacity checks.',
+    tech_sronly_desc: '"Screen-reader only" pattern used in accessibility. 1px field with clip rect.',
+    tech_sronly_exp: 'Generally <strong>NOT detected</strong>. Identical to the pattern used for accessibility, hard to distinguish.'
+  }
+};
+
+var currentLang = 'es';
+
+function T(key) { return i18n[currentLang][key] || key; }
+
+// ============================================================
+// TECHNIQUES DEFINITION
+// ============================================================
+var techniques = [
+  { id: 'offscreen',     name: 'Off-screen',           css: 'position: absolute;\nleft: -9999px;\ntop: -9999px;',                                          className: 'hide-offscreen',    descKey: 'tech_offscreen',    },
+  { id: 'display-none',  name: 'display:none',          css: 'display: none;',                                                                              className: 'hide-display-none', descKey: 'tech_displaynone',  },
+  { id: 'visibility',    name: 'visibility:hidden',     css: 'visibility: hidden;\nheight: 0;\noverflow: hidden;',                                          className: 'hide-visibility',   descKey: 'tech_visibility',   },
+  { id: 'opacity',       name: 'opacity:0',             css: 'opacity: 0;\nheight: 0;\noverflow: hidden;',                                                  className: 'hide-opacity',      descKey: 'tech_opacity',      },
+  { id: 'transform',     name: 'transform:scale(0)',    css: 'transform: scale(0);\nheight: 0;\noverflow: hidden;\nposition: absolute;',                     className: 'hide-transform',    descKey: 'tech_transform',    },
+  { id: 'clip-path',     name: 'clip-path:inset',       css: 'clip-path: inset(100%);\nposition: absolute;',                                                className: 'hide-clip-path',    descKey: 'tech_clippath',     },
+  { id: 'size-zero',     name: 'Size zero',             css: 'font-size: 0;\ncolor: transparent;\nheight: 0; width: 0;\noverflow: hidden;\npadding: 0; border: 0;', className: 'hide-size-zero', descKey: 'tech_sizezero',    },
+  { id: 'z-index',       name: 'z-index:-1 + opacity',  css: 'position: absolute;\nz-index: -1;\nopacity: 0.01;\nwidth: 1px; height: 1px;',                  className: 'hide-z-index',      descKey: 'tech_zindex',       },
+  { id: 'sr-only',       name: 'SR-Only (clip rect)',   css: 'position: absolute;\nwidth: 1px; height: 1px;\noverflow: hidden;\nclip: rect(0,0,0,0);\nwhite-space: nowrap;', className: 'hide-overflow-clip', descKey: 'tech_sronly', },
+];
+
+// ============================================================
+// HIDDEN FIELDS TO INJECT
+// ============================================================
+var hiddenFields = [
+  // ── PERSONAL DATA (autocomplete standard) ──
+  { name: 'h-phone',       autocomplete: 'tel',                label: 'Telefono / Phone',       category: 'Personal',      strategy: 'autocomplete' },
+  { name: 'h-fullname',    autocomplete: 'name',               label: 'Full name',              category: 'Personal',      strategy: 'autocomplete' },
+  { name: 'h-given',       autocomplete: 'given-name',         label: 'Given name',             category: 'Personal',      strategy: 'autocomplete' },
+  { name: 'h-family',      autocomplete: 'family-name',        label: 'Family name',            category: 'Personal',      strategy: 'autocomplete' },
+  { name: 'h-org',         autocomplete: 'organization',       label: 'Organization',           category: 'Personal',      strategy: 'autocomplete' },
+  { name: 'h-jobtitle',    autocomplete: 'organization-title', label: 'Job title',              category: 'Personal',      strategy: 'autocomplete' },
+  { name: 'h-bday',        autocomplete: 'bday',               label: 'Birthday',               category: 'Personal',      strategy: 'autocomplete' },
+  { name: 'h-sex',         autocomplete: 'sex',                label: 'Sex/Gender',             category: 'Personal',      strategy: 'autocomplete' },
+
+  // ── ADDRESS (autocomplete standard) ──
+  { name: 'h-street',      autocomplete: 'street-address',     label: 'Street address',         category: 'Address',       strategy: 'autocomplete' },
+  { name: 'h-addrline2',   autocomplete: 'address-line2',      label: 'Apt/Floor',              category: 'Address',       strategy: 'autocomplete' },
+  { name: 'h-city',        autocomplete: 'address-level2',     label: 'City',                   category: 'Address',       strategy: 'autocomplete' },
+  { name: 'h-state',       autocomplete: 'address-level1',     label: 'State/Province',         category: 'Address',       strategy: 'autocomplete' },
+  { name: 'h-zip',         autocomplete: 'postal-code',        label: 'Postal code',            category: 'Address',       strategy: 'autocomplete' },
+  { name: 'h-country',     autocomplete: 'country-name',       label: 'Country',                category: 'Address',       strategy: 'autocomplete' },
+
+  // ── CREDIT CARD (autocomplete standard) ──
+  { name: 'h-ccname',      autocomplete: 'cc-name',            label: 'CC Name',                category: 'Credit Card',   strategy: 'autocomplete' },
+  { name: 'h-ccnum',       autocomplete: 'cc-number',          label: 'CC Number',              category: 'Credit Card',   strategy: 'autocomplete' },
+  { name: 'h-ccexp',       autocomplete: 'cc-exp',             label: 'CC Expiry',              category: 'Credit Card',   strategy: 'autocomplete' },
+  { name: 'h-ccexpmo',     autocomplete: 'cc-exp-month',       label: 'CC Exp Month',           category: 'Credit Card',   strategy: 'autocomplete' },
+  { name: 'h-ccexpyr',     autocomplete: 'cc-exp-year',        label: 'CC Exp Year',            category: 'Credit Card',   strategy: 'autocomplete' },
+  { name: 'h-cccsc',       autocomplete: 'cc-csc',             label: 'CC CVV/CSC',             category: 'Credit Card',   strategy: 'autocomplete' },
+  { name: 'h-cctype',      autocomplete: 'cc-type',            label: 'CC Type (Visa..)',       category: 'Credit Card',   strategy: 'autocomplete' },
+
+  // ── ENGLISH NAME/ID HEURISTICS (no autocomplete attr) ──
+  { name: 'first_name',    autocomplete: 'off', label: 'EN name=first_name',     category: 'Heuristic EN', strategy: 'name-en' },
+  { name: 'last_name',     autocomplete: 'off', label: 'EN name=last_name',      category: 'Heuristic EN', strategy: 'name-en' },
+  { name: 'phone_number',  autocomplete: 'off', label: 'EN name=phone_number',   category: 'Heuristic EN', strategy: 'name-en' },
+  { name: 'address',       autocomplete: 'off', label: 'EN name=address',        category: 'Heuristic EN', strategy: 'name-en' },
+  { name: 'city',          autocomplete: 'off', label: 'EN name=city',           category: 'Heuristic EN', strategy: 'name-en' },
+  { name: 'zip_code',      autocomplete: 'off', label: 'EN name=zip_code',       category: 'Heuristic EN', strategy: 'name-en' },
+  { name: 'credit_card',   autocomplete: 'off', label: 'EN name=credit_card',    category: 'Heuristic EN', strategy: 'name-en' },
+  { name: 'card_number',   autocomplete: 'off', label: 'EN name=card_number',    category: 'Heuristic EN', strategy: 'name-en' },
+  { name: 'expiration',    autocomplete: 'off', label: 'EN name=expiration',     category: 'Heuristic EN', strategy: 'name-en' },
+  { name: 'cvv',           autocomplete: 'off', label: 'EN name=cvv',            category: 'Heuristic EN', strategy: 'name-en' },
+  { name: 'ssn',           autocomplete: 'off', label: 'EN name=ssn',            category: 'Heuristic EN', strategy: 'name-en' },
+  { name: 'date_of_birth', autocomplete: 'off', label: 'EN name=date_of_birth',  category: 'Heuristic EN', strategy: 'name-en' },
+  { name: 'company',       autocomplete: 'off', label: 'EN name=company',        category: 'Heuristic EN', strategy: 'name-en' },
+  { name: 'username',      autocomplete: 'off', label: 'EN name=username',       category: 'Heuristic EN', strategy: 'name-en' },
+
+  // ── SPANISH NAME/ID HEURISTICS (no autocomplete attr) ──
+  { name: 'nombre',         autocomplete: 'off', label: 'ES name=nombre',         category: 'Heuristic ES', strategy: 'name-es' },
+  { name: 'apellido',       autocomplete: 'off', label: 'ES name=apellido',       category: 'Heuristic ES', strategy: 'name-es' },
+  { name: 'telefono',       autocomplete: 'off', label: 'ES name=telefono',       category: 'Heuristic ES', strategy: 'name-es' },
+  { name: 'direccion',      autocomplete: 'off', label: 'ES name=direccion',      category: 'Heuristic ES', strategy: 'name-es' },
+  { name: 'ciudad',         autocomplete: 'off', label: 'ES name=ciudad',         category: 'Heuristic ES', strategy: 'name-es' },
+  { name: 'provincia',      autocomplete: 'off', label: 'ES name=provincia',      category: 'Heuristic ES', strategy: 'name-es' },
+  { name: 'codigo_postal',  autocomplete: 'off', label: 'ES name=codigo_postal',  category: 'Heuristic ES', strategy: 'name-es' },
+  { name: 'pais',           autocomplete: 'off', label: 'ES name=pais',           category: 'Heuristic ES', strategy: 'name-es' },
+  { name: 'tarjeta',        autocomplete: 'off', label: 'ES name=tarjeta',        category: 'Heuristic ES', strategy: 'name-es' },
+  { name: 'numero_tarjeta', autocomplete: 'off', label: 'ES name=numero_tarjeta', category: 'Heuristic ES', strategy: 'name-es' },
+  { name: 'vencimiento',    autocomplete: 'off', label: 'ES name=vencimiento',    category: 'Heuristic ES', strategy: 'name-es' },
+  { name: 'dni',            autocomplete: 'off', label: 'ES name=dni',            category: 'Heuristic ES', strategy: 'name-es' },
+  { name: 'cuit',           autocomplete: 'off', label: 'ES name=cuit',           category: 'Heuristic ES', strategy: 'name-es' },
+  { name: 'empresa',        autocomplete: 'off', label: 'ES name=empresa',        category: 'Heuristic ES', strategy: 'name-es' },
+  { name: 'usuario',        autocomplete: 'off', label: 'ES name=usuario',        category: 'Heuristic ES', strategy: 'name-es' },
+
+  // ── PLACEHOLDER-ONLY HEURISTICS ──
+  { name: 'field_a', autocomplete: 'off', label: 'PH "Enter phone number"',   category: 'Placeholder', strategy: 'placeholder', placeholder: 'Enter your phone number' },
+  { name: 'field_b', autocomplete: 'off', label: 'PH "Ingrese su direccion"', category: 'Placeholder', strategy: 'placeholder', placeholder: 'Ingrese su direccion' },
+  { name: 'field_c', autocomplete: 'off', label: 'PH "Your full name"',       category: 'Placeholder', strategy: 'placeholder', placeholder: 'Your full name' },
+  { name: 'field_d', autocomplete: 'off', label: 'PH "Credit card number"',   category: 'Placeholder', strategy: 'placeholder', placeholder: 'Credit card number' },
+  { name: 'field_e', autocomplete: 'off', label: 'PH "Numero de tarjeta"',    category: 'Placeholder', strategy: 'placeholder', placeholder: 'Numero de tarjeta de credito' },
+  { name: 'field_f', autocomplete: 'off', label: 'PH "Codigo postal / ZIP"',  category: 'Placeholder', strategy: 'placeholder', placeholder: 'Codigo postal / ZIP code' },
+  { name: 'field_g', autocomplete: 'off', label: 'PH "Fecha de nacimiento"',  category: 'Placeholder', strategy: 'placeholder', placeholder: 'Fecha de nacimiento' },
+  { name: 'field_h', autocomplete: 'off', label: 'PH "Social security #"',    category: 'Placeholder', strategy: 'placeholder', placeholder: 'Social security number' },
+];
+
+var visibleFields = [
+  { name: 'name',  labelKey: 'labelName' },
+  { name: 'email', labelKey: 'labelEmail' },
+];
+
+// ============================================================
+// STATE
+// ============================================================
+var activeTechnique = techniques[0];
+var comparisonResults = {};
+
+// ============================================================
+// LANGUAGE TOGGLE
+// ============================================================
+document.querySelectorAll('.lang-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    currentLang = btn.dataset.lang;
+    document.querySelectorAll('.lang-btn').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.lang === currentLang);
+    });
+    document.documentElement.lang = currentLang;
+    applyLanguage();
+  });
+});
+
+function applyLanguage() {
+  document.getElementById('page-title').textContent = T('pageTitle');
+  document.getElementById('page-subtitle').textContent = T('pageSubtitle');
+  document.getElementById('instructions-title').textContent = T('instructionsTitle');
+  document.getElementById('instructions-list').innerHTML =
+    '<li>' + T('step1') + '</li><li>' + T('step2') + '</li><li>' + T('step3') + '</li><li>' + T('step4') + '</li>';
+  document.getElementById('form-title').textContent = T('formTitle');
+  document.getElementById('form-tagline').textContent = T('formTagline');
+  document.getElementById('label-name').textContent = T('labelName');
+  document.getElementById('label-email').textContent = T('labelEmail');
+  document.getElementById('visible-name').placeholder = T('placeholderName');
+  document.getElementById('visible-email').placeholder = T('placeholderEmail');
+  document.getElementById('submit-btn').textContent = T('submitBtn');
+  document.getElementById('warning-text').innerHTML = T('warningText');
+  document.getElementById('comparison-title').textContent = T('comparisonTitle');
+  document.getElementById('results-title').innerHTML = T('resultsTitle') + ' — <span id="current-technique-label">' + activeTechnique.name + '</span>';
+  document.getElementById('results-list').innerHTML = '<p style="color:#475569;font-size:0.85rem;">' + T('resultsEmpty') + '</p>';
+
+  // Comparison table header
+  document.getElementById('comparison-thead').innerHTML =
+    '<tr>' +
+      '<th rowspan="2">' + T('thTechnique') + '</th>' +
+      '<th colspan="3" style="text-align:center;border-left:2px solid #334155;">' + T('thAutocompletGroup') + '</th>' +
+      '<th colspan="3" style="text-align:center;border-left:2px solid #334155;">' + T('thHeuristicEN') + '</th>' +
+      '<th colspan="3" style="text-align:center;border-left:2px solid #334155;">' + T('thHeuristicES') + '</th>' +
+      '<th colspan="2" style="text-align:center;border-left:2px solid #334155;">' + T('thPlaceholder') + '</th>' +
+      '<th rowspan="2" style="border-left:2px solid #334155;">' + T('thTotal') + '</th>' +
+    '</tr><tr>' +
+      '<th style="border-left:2px solid #334155;">' + T('thTel') + '</th><th>' + T('thDir') + '</th><th>' + T('thCC') + '</th>' +
+      '<th style="border-left:2px solid #334155;">' + T('thPhone') + '</th><th>' + T('thAddr') + '</th><th>' + T('thCard') + '</th>' +
+      '<th style="border-left:2px solid #334155;">' + T('thTel') + '</th><th>' + T('thDir') + '</th><th>' + T('thCard') + '</th>' +
+      '<th style="border-left:2px solid #334155;">' + T('thTelPH') + '</th><th>' + T('thCCPH') + '</th>' +
+    '</tr>';
+
+  document.getElementById('comparison-legend').innerHTML =
+    '<span class="status-filled">' + T('legendFilled') + '</span> ' + T('legendFilledDesc') + ' &nbsp;|&nbsp; ' +
+    '<span class="status-blocked">' + T('legendBlocked') + '</span> ' + T('legendBlockedDesc') + ' &nbsp;|&nbsp; ' +
+    '<span class="status-pending">' + T('legendPending') + '</span> ' + T('legendPendingDesc');
+
+  // Re-render technique info
+  selectTechnique(activeTechnique);
+  renderComparison();
+  renderBrowserInfo();
+}
+
+// ============================================================
+// RENDER TABS
+// ============================================================
+var tabsContainer = document.getElementById('technique-tabs');
+techniques.forEach(function (t, i) {
+  var btn = document.createElement('button');
+  btn.className = 'tab-btn' + (i === 0 ? ' active' : '');
+  btn.textContent = t.name;
+  btn.dataset.id = t.id;
+  btn.addEventListener('click', function () { selectTechnique(t); });
+  tabsContainer.appendChild(btn);
+});
+
+// ============================================================
+// SELECT TECHNIQUE
+// ============================================================
+function selectTechnique(t) {
+  activeTechnique = t;
+
+  document.querySelectorAll('.tab-btn').forEach(function (btn) {
+    btn.classList.toggle('active', btn.dataset.id === t.id);
+  });
+
+  document.getElementById('technique-info').innerHTML =
+    '<h3>' + t.name + '</h3>' +
+    '<div class="css-code">' + escapeHtml(t.css) + '</div>' +
+    '<p class="expectation">' + T(t.descKey + '_desc') + '</p>' +
+    '<p class="expectation" style="margin-top:0.5rem;">' + T('expectedBehavior') + ': ' + T(t.descKey + '_exp') + '</p>';
+
+  var techLabel = document.getElementById('current-technique-label');
+  if (techLabel) techLabel.textContent = t.name;
+
+  rebuildHiddenFields(t.className);
+
+  var form = document.getElementById('trap-form');
+  form.reset();
+  form.querySelector('button').textContent = T('submitBtn');
+  form.querySelector('button').style.background = '#6366f1';
+
+  document.getElementById('results-list').innerHTML =
+    '<p style="color:#475569;font-size:0.85rem;">' + T('resultsEmpty') + '</p>';
+}
+
+function rebuildHiddenFields(className) {
+  var container = document.getElementById('hidden-container');
+  container.innerHTML = '';
+  var wrapper = document.createElement('div');
+  wrapper.className = className;
+  wrapper.setAttribute('aria-hidden', 'true');
+
+  hiddenFields.forEach(function (f) {
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.name = f.name;
+    input.tabIndex = -1;
+    if (f.autocomplete && f.autocomplete !== 'off') {
+      input.setAttribute('autocomplete', f.autocomplete);
+    }
+    if (f.placeholder) input.placeholder = f.placeholder;
+    wrapper.appendChild(input);
+  });
+
+  container.appendChild(wrapper);
+}
+
+// ============================================================
+// FORM SUBMIT — CAPTURE RESULTS
+// ============================================================
+var form = document.getElementById('trap-form');
+form.addEventListener('submit', function (e) {
+  e.preventDefault();
+
+  var html = '';
+  var capturedHidden = 0;
+  var techniqueResult = {};
+
+  // Visible fields
+  visibleFields.forEach(function (f) {
+    var value = form.elements[f.name] ? form.elements[f.name].value.trim() : '';
+    html += '<div class="result-row">' +
+      '<span class="result-label">' + T(f.labelKey) + '<span class="badge visible">' + T('badgeVisible') + '</span></span>' +
+      '<span class="result-value' + (value ? '' : ' empty') + '">' + (value || T('empty')) + '</span></div>';
+  });
+
+  // Hidden fields grouped by category
+  var lastCategory = '';
+  hiddenFields.forEach(function (f) {
+    var input = form.elements[f.name];
+    var value = input ? input.value.trim() : '';
+    var filled = !!value;
+    techniqueResult[f.name] = filled;
+    if (filled) capturedHidden++;
+
+    if (f.category !== lastCategory) {
+      lastCategory = f.category;
+      var strategyLabel = f.strategy === 'autocomplete' ? 'autocomplete attr' :
+                          f.strategy === 'placeholder' ? 'placeholder heuristic' : 'name/id heuristic';
+      html += '<div style="margin-top:0.75rem;padding:0.35rem 0.5rem;background:#0f172a;border-radius:4px;font-size:0.7rem;color:#6366f1;font-weight:600;">' +
+        f.category + ' <span style="color:#475569;font-weight:400;">(' + strategyLabel + ')</span></div>';
+    }
+
+    var displayValue = value || T('empty');
+    if ((f.name === 'h-ccnum' || f.name === 'card_number' || f.name === 'credit_card' || f.name === 'numero_tarjeta') && value.length > 4) {
+      displayValue = '*'.repeat(value.length - 4) + value.slice(-4);
+    }
+    if ((f.name === 'h-cccsc' || f.name === 'cvv' || f.name === 'ssn') && value.length > 0) {
+      displayValue = '*'.repeat(value.length);
+    }
+
+    var badgeClass = filled ? 'hidden' : 'blocked';
+    var badgeText = filled ? T('badgeCaptured') : T('badgeBlocked');
+
+    html += '<div class="result-row">' +
+      '<span class="result-label">' + f.label + '<span class="badge ' + badgeClass + '">' + badgeText + '</span></span>' +
+      '<span class="result-value ' + (filled ? 'captured' : 'empty') + '">' + displayValue + '</span></div>';
+  });
+
+  if (capturedHidden > 0) {
+    html = '<div style="background:#7f1d1d;padding:0.6rem 1rem;border-radius:8px;margin-bottom:1rem;font-size:0.85rem;color:#fca5a5;">' +
+      T('hiddenCaptured').replace('{n}', capturedHidden).replace('{t}', hiddenFields.length) + '</div>' + html;
+  } else {
+    html = '<div style="background:#14532d;padding:0.6rem 1rem;border-radius:8px;margin-bottom:1rem;font-size:0.85rem;color:#86efac;">' +
+      T('hiddenZero') + '</div>' + html;
+  }
+
+  document.getElementById('results-list').innerHTML = html;
+  comparisonResults[activeTechnique.id] = techniqueResult;
+  renderComparison();
+});
+
+// ============================================================
+// LIVE MONITORING
+// ============================================================
+setInterval(function () {
+  var filled = 0;
+  hiddenFields.forEach(function (f) {
+    var input = form.elements[f.name];
+    if (input && input.value.trim()) filled++;
+  });
+  var btn = form.querySelector('button');
+  if (filled > 0) {
+    btn.textContent = T('submitBtnHidden').replace('{n}', filled);
+    btn.style.background = '#dc2626';
+  }
+}, 500);
+
+// ============================================================
+// COMPARISON TABLE
+// ============================================================
+var comparisonFields = [
+  { name: 'h-phone',        border: true },
+  { name: 'h-street',       border: false },
+  { name: 'h-ccnum',        border: false },
+  { name: 'phone_number',   border: true },
+  { name: 'address',        border: false },
+  { name: 'card_number',    border: false },
+  { name: 'telefono',       border: true },
+  { name: 'direccion',      border: false },
+  { name: 'numero_tarjeta', border: false },
+  { name: 'field_a',        border: true },
+  { name: 'field_d',        border: false },
+];
+
+function renderComparison() {
+  var tbody = document.getElementById('comparison-body');
+  var html = '';
+
+  techniques.forEach(function (t) {
+    var result = comparisonResults[t.id];
+    html += '<tr><td><strong>' + t.name + '</strong></td>';
+
+    comparisonFields.forEach(function (cf) {
+      var bs = cf.border ? 'border-left:2px solid #334155;' : '';
+      if (!result) {
+        html += '<td class="status-pending" style="' + bs + '">--</td>';
+      } else if (result[cf.name]) {
+        html += '<td class="status-filled" style="' + bs + '">FILLED</td>';
+      } else {
+        html += '<td class="status-blocked" style="' + bs + '">BLOCKED</td>';
+      }
+    });
+
+    if (!result) {
+      html += '<td class="status-pending" style="border-left:2px solid #334155;">' + T('notTested') + '</td>';
+    } else {
+      var tot = 0;
+      hiddenFields.forEach(function (f) { if (result[f.name]) tot++; });
+      if (tot === 0) {
+        html += '<td class="status-blocked" style="border-left:2px solid #334155;">0/' + hiddenFields.length + '</td>';
+      } else {
+        html += '<td class="status-filled" style="border-left:2px solid #334155;">' + tot + '/' + hiddenFields.length + '</td>';
+      }
+    }
+    html += '</tr>';
+  });
+
+  tbody.innerHTML = html;
+}
+
+// ============================================================
+// BROWSER DETECTION
+// ============================================================
+function detectBrowser() {
+  var ua = navigator.userAgent;
+  var browser = '?', version = '', engine = '';
+
+  if (ua.indexOf('Firefox') > -1) { browser = 'Firefox'; version = (ua.match(/Firefox\/([\d.]+)/) || [])[1] || ''; engine = 'Gecko'; }
+  else if (ua.indexOf('Edg/') > -1) { browser = 'Edge'; version = (ua.match(/Edg\/([\d.]+)/) || [])[1] || ''; engine = 'Chromium'; }
+  else if (ua.indexOf('OPR/') > -1) { browser = 'Opera'; version = (ua.match(/OPR\/([\d.]+)/) || [])[1] || ''; engine = 'Chromium'; }
+  else if (ua.indexOf('Chrome') > -1) { browser = 'Chrome'; version = (ua.match(/Chrome\/([\d.]+)/) || [])[1] || ''; engine = 'Chromium'; }
+  else if (ua.indexOf('Safari') > -1) { browser = 'Safari'; version = (ua.match(/Version\/([\d.]+)/) || [])[1] || ''; engine = 'WebKit'; }
+
+  if (navigator.brave && typeof navigator.brave.isBrave === 'function') { browser = 'Brave'; engine = 'Chromium'; }
+
+  var platform = '?';
+  if (ua.indexOf('Win') > -1) platform = 'Windows';
+  else if (ua.indexOf('Mac') > -1) platform = 'macOS';
+  else if (ua.indexOf('Linux') > -1) platform = 'Linux';
+  else if (ua.indexOf('Android') > -1) platform = 'Android';
+  else if (/iPhone|iPad/.test(ua)) platform = 'iOS';
+
+  return { browser: browser, version: version, engine: engine, platform: platform };
+}
+
+function renderBrowserInfo() {
+  var info = detectBrowser();
+  var locale = currentLang === 'es' ? 'es-AR' : 'en-US';
+  var dateStr = new Date().toLocaleDateString(locale) + ' ' + new Date().toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+
+  var items = [
+    { label: T('browserLabel'), value: info.browser + ' ' + info.version },
+    { label: T('engineLabel'),  value: info.engine },
+    { label: T('platformLabel'), value: info.platform },
+    { label: T('testDateLabel'), value: dateStr },
+  ];
+
+  document.getElementById('browser-info').innerHTML = items.map(function (item) {
+    return '<div><span style="color:#475569;">' + item.label + ':</span> <strong style="color:#f8fafc;">' + item.value + '</strong></div>';
+  }).join('');
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ============================================================
+// INIT
+// ============================================================
+applyLanguage();
+</script>
+
+</body>
+</html>
