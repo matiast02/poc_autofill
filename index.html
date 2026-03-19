@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PoC - Autofill Data Extraction</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -48,6 +49,10 @@
     }
     .tab-btn:hover { border-color: #6366f1; color: #c7d2fe; }
     .tab-btn.active { background: #6366f1; border-color: #6366f1; color: #fff; font-weight: 600; }
+    .tab-btn.result-filled { background: #991b1b; border-color: #dc2626; color: #fecaca; font-weight: 600; }
+    .tab-btn.result-filled.active { background: #dc2626; border-color: #dc2626; color: #fff; }
+    .tab-btn.result-blocked { background: #14532d; border-color: #22c55e; color: #bbf7d0; font-weight: 600; }
+    .tab-btn.result-blocked.active { background: #16a34a; border-color: #16a34a; color: #fff; }
 
     .technique-info {
       background: #1e293b; border: 1px solid #334155; border-radius: 12px;
@@ -71,6 +76,7 @@
     .fake-site {
       background: #fff; color: #1e293b; border-radius: 12px;
       padding: 2rem; width: 380px; box-shadow: 0 4px 24px rgba(0,0,0,.4);
+      max-height: 480px; overflow-y: auto;
     }
     .fake-site h2 { font-size: 1.2rem; margin-bottom: 0.25rem; }
     .fake-site .tagline { font-size: 0.8rem; color: #64748b; margin-bottom: 1.5rem; }
@@ -113,12 +119,17 @@
       position: absolute; width: 1px; height: 1px;
       overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; padding: 0;
     }
+    .hide-content-visibility { content-visibility: hidden; height: 0; overflow: hidden; }
+    .hide-contain { contain: strict; height: 0; width: 0; overflow: hidden; }
+    .hide-pointer-events { pointer-events: none; opacity: 0; position: absolute; height: 0; overflow: hidden; }
+    .hide-details summary { display: none; }
+    .hide-details { height: 0; overflow: hidden; }
 
     /* --- Results panel --- */
     .results {
       background: #1e293b; border: 1px solid #334155; border-radius: 12px;
       padding: 2rem; width: 520px; box-shadow: 0 4px 24px rgba(0,0,0,.4);
-      max-height: 80vh; overflow-y: auto;
+      max-height: 480px; overflow-y: auto;
     }
     .results h2 { font-size: 1.1rem; margin-bottom: 1rem; color: #f1f5f9; }
     .result-row {
@@ -148,10 +159,73 @@
       color: #fbbf24; line-height: 1.5;
     }
 
+    /* --- Vulnerability score --- */
+    .score-panel {
+      background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+      padding: 1.5rem; max-width: 1200px; width: 100%; margin-top: 2rem;
+      display: none;
+    }
+    .score-panel.visible { display: block; }
+    .score-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+    .score-header h2 { font-size: 1.1rem; color: #f1f5f9; margin: 0; }
+    .score-stats { display: flex; gap: 2rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .score-stat {
+      text-align: center; padding: 1rem 1.5rem; border-radius: 10px;
+      background: #0f172a; border: 1px solid #334155; min-width: 120px;
+    }
+    .score-stat .number { font-size: 2rem; font-weight: 700; line-height: 1; }
+    .score-stat .label { font-size: 0.75rem; color: #94a3b8; margin-top: 0.35rem; }
+    .score-bar-container {
+      background: #0f172a; border-radius: 999px; height: 28px; overflow: hidden;
+      border: 1px solid #334155; position: relative;
+    }
+    .score-bar {
+      height: 100%; border-radius: 999px; transition: width 0.6s ease, background 0.4s ease;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem; font-weight: 700; color: #fff; min-width: 40px;
+    }
+    .score-bar-label {
+      font-size: 0.8rem; color: #94a3b8; margin-top: 0.5rem; text-align: center;
+    }
+
+    /* --- QR Modal --- */
+    .qr-btn {
+      padding: 0.4rem 1rem; background: #334155; border: 1px solid #475569;
+      border-radius: 8px; color: #94a3b8; font-size: 0.8rem; cursor: pointer;
+      transition: all .2s; position: fixed; bottom: 1rem; right: 1rem; z-index: 100;
+    }
+    .qr-btn:hover { background: #6366f1; border-color: #6366f1; color: #fff; }
+    .qr-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7);
+      z-index: 200; align-items: center; justify-content: center;
+    }
+    .qr-overlay.visible { display: flex; }
+    .qr-modal {
+      background: #1e293b; border: 1px solid #334155; border-radius: 16px;
+      padding: 2rem; text-align: center; max-width: 340px;
+    }
+    .qr-modal h3 { color: #f1f5f9; margin-bottom: 0.5rem; font-size: 1rem; }
+    .qr-modal p { color: #94a3b8; font-size: 0.8rem; margin-bottom: 1rem; }
+    .qr-modal canvas { border-radius: 8px; background: #fff; padding: 12px; }
+    .qr-modal .qr-url { color: #6366f1; font-size: 0.75rem; margin-top: 0.75rem; word-break: break-all; }
+    .qr-close {
+      margin-top: 1rem; padding: 0.4rem 1.5rem; background: #475569; border: none;
+      border-radius: 8px; color: #e2e8f0; cursor: pointer; font-size: 0.8rem;
+    }
+    .qr-close:hover { background: #64748b; }
+
+    /* --- Reset button --- */
+    .reset-btn {
+      padding: 0.4rem 1rem; background: #334155; border: 1px solid #475569;
+      border-radius: 8px; color: #94a3b8; font-size: 0.8rem; cursor: pointer;
+      transition: all .2s;
+    }
+    .reset-btn:hover { background: #dc2626; border-color: #dc2626; color: #fff; }
+
     /* --- Comparison table --- */
     .comparison {
       background: #1e293b; border: 1px solid #334155; border-radius: 12px;
-      padding: 1.5rem; max-width: 1200px; width: 100%; margin-top: 2rem;
+      padding: 1.5rem; max-width: 1200px; width: 100%; margin-top: 1rem;
     }
     .comparison h2 { font-size: 1.1rem; margin-bottom: 1rem; color: #f1f5f9; }
     .comparison table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
@@ -170,6 +244,67 @@
     .status-blocked { color: #4ade80; font-weight: 600; }
     .status-pending { color: #475569; }
 
+    /* --- Recommendations --- */
+    .recs-panel {
+      background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+      padding: 1.5rem; max-width: 1200px; width: 100%; margin-top: 1rem;
+      display: none;
+    }
+    .recs-panel.visible { display: block; }
+    .recs-panel h2 { font-size: 1.1rem; margin-bottom: 0.75rem; color: #f1f5f9; }
+    .recs-severity {
+      padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem;
+      font-size: 0.85rem; font-weight: 600;
+    }
+    .recs-severity.critical { background: #7f1d1d; color: #fca5a5; border: 1px solid #dc2626; }
+    .recs-severity.high { background: #7c2d12; color: #fed7aa; border: 1px solid #f97316; }
+    .recs-severity.medium { background: #78350f; color: #fde68a; border: 1px solid #fbbf24; }
+    .recs-severity.low { background: #14532d; color: #bbf7d0; border: 1px solid #22c55e; }
+    .recs-severity.safe { background: #14532d; color: #bbf7d0; border: 1px solid #22c55e; }
+    .recs-intro { font-size: 0.85rem; color: #94a3b8; margin-bottom: 1rem; }
+    .rec-item {
+      display: flex; gap: 0.75rem; padding: 0.75rem 0;
+      border-bottom: 1px solid #334155; align-items: flex-start;
+    }
+    .rec-item:last-child { border-bottom: none; }
+    .rec-icon {
+      flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
+      background: #334155; display: flex; align-items: center; justify-content: center;
+      font-size: 0.85rem; margin-top: 0.1rem;
+    }
+    .rec-content h4 { font-size: 0.85rem; color: #f1f5f9; margin-bottom: 0.2rem; }
+    .rec-content p { font-size: 0.78rem; color: #94a3b8; line-height: 1.5; }
+
+    /* --- Presentation mode --- */
+    .pres-btn {
+      position: fixed; top: 1rem; right: 8rem; z-index: 100;
+      padding: 0.4rem 0.9rem; border: 1px solid #334155; background: #1e293b;
+      border-radius: 8px; color: #94a3b8; font-size: 0.8rem; cursor: pointer;
+      font-weight: 600; transition: all .2s;
+    }
+    .pres-btn:hover { background: #334155; }
+    .pres-btn.active { background: #6366f1; border-color: #6366f1; color: #fff; }
+
+    body.presentation-mode .instructions { display: none; }
+    body.presentation-mode .technique-info .css-code { display: none; }
+    body.presentation-mode .technique-info .expectation { font-size: 1rem; }
+    body.presentation-mode .technique-info h3 { font-size: 1.3rem; }
+    body.presentation-mode h1 { font-size: 2rem; }
+    body.presentation-mode .subtitle { font-size: 1.1rem; }
+    body.presentation-mode .tab-btn { font-size: 0.95rem; padding: 0.6rem 1.2rem; }
+    body.presentation-mode .fake-site h2 { font-size: 1.4rem; }
+    body.presentation-mode .results h2 { font-size: 1.3rem; }
+    body.presentation-mode .result-row { font-size: 0.95rem; }
+    body.presentation-mode .score-stat .number { font-size: 2.5rem; }
+    body.presentation-mode .score-stat .label { font-size: 0.9rem; }
+    body.presentation-mode .score-bar { font-size: 0.95rem; height: 36px; }
+    body.presentation-mode .score-bar-container { height: 36px; }
+    body.presentation-mode .score-bar-label { font-size: 1rem; }
+    body.presentation-mode .comparison { font-size: 0.9rem; }
+    body.presentation-mode .comparison th { font-size: 0.85rem; }
+    body.presentation-mode .warning-box { display: none; }
+    body.presentation-mode .recs-panel { display: none !important; }
+
     .instructions {
       background: #1e293b; border: 1px solid #334155; border-radius: 12px;
       padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; max-width: 1200px; width: 100%;
@@ -181,6 +316,9 @@
   </style>
 </head>
 <body>
+
+  <!-- Presentation mode toggle -->
+  <button class="pres-btn" id="pres-btn" onclick="togglePresentation()"></button>
 
   <!-- Language toggle -->
   <div class="lang-toggle">
@@ -220,6 +358,18 @@
     </div>
   </div>
 
+  <div class="score-panel" id="score-panel">
+    <div class="score-header">
+      <h2 id="score-title"></h2>
+      <button class="reset-btn" id="reset-btn" onclick="resetAll()"></button>
+    </div>
+    <div class="score-stats" id="score-stats"></div>
+    <div class="score-bar-container">
+      <div class="score-bar" id="score-bar"></div>
+    </div>
+    <p class="score-bar-label" id="score-bar-label"></p>
+  </div>
+
   <div class="comparison">
     <h2 id="comparison-title"></h2>
     <div id="browser-info" style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem;padding:0.75rem 1rem;background:#0f172a;border-radius:8px;font-size:0.8rem;"></div>
@@ -232,6 +382,25 @@
     <p id="comparison-legend" style="margin-top:1rem;font-size:0.75rem;color:#64748b;"></p>
   </div>
 
+  <div class="recs-panel" id="recs-panel">
+    <h2 id="recs-title"></h2>
+    <div id="recs-severity" class="recs-severity"></div>
+    <p class="recs-intro" id="recs-intro"></p>
+    <div id="recs-list"></div>
+  </div>
+
+  <button class="qr-btn" id="qr-btn" onclick="toggleQR()"></button>
+  <div class="qr-overlay" id="qr-overlay" onclick="if(event.target===this)toggleQR()">
+    <div class="qr-modal">
+      <h3 id="qr-title"></h3>
+      <p id="qr-desc"></p>
+      <canvas id="qr-canvas" style="display:none;"></canvas>
+      <img id="qr-img" alt="QR Code" style="border-radius:8px;width:200px;height:200px;">
+      <div class="qr-url" id="qr-url"></div>
+      <br><button class="qr-close" onclick="toggleQR()" id="qr-close"></button>
+    </div>
+  </div>
+
 <script>
 // ============================================================
 // i18n TRANSLATIONS
@@ -239,7 +408,7 @@
 var i18n = {
   es: {
     pageTitle: 'PoC: Browser Autofill Data Extraction',
-    pageSubtitle: 'Compara 9 tecnicas de ocultamiento y observa cuales el navegador detecta y bloquea',
+    pageSubtitle: 'Compara 13 tecnicas de ocultamiento y observa cuales el navegador detecta y bloquea',
     instructionsTitle: 'Como reproducirlo',
     step1: 'Selecciona una <strong>tecnica de ocultamiento</strong> en las pestanas de abajo.',
     step2: 'Hace click en <strong>"Tu nombre"</strong> y selecciona la sugerencia de autofill del navegador.',
@@ -291,6 +460,43 @@ var i18n = {
     platformLabel: 'Plataforma',
     testDateLabel: 'Fecha test',
     // Technique descriptions
+    scoreTitle: 'Nivel de vulnerabilidad de tu navegador',
+    scoreTested: 'Probadas',
+    scoreVulnerable: 'Vulnerables',
+    scoreSafe: 'Seguras',
+    scoreFields: 'Campos capturados',
+    scoreLevelCritical: 'CRITICO — Tu navegador es altamente vulnerable al autofill oculto',
+    scoreLevelHigh: 'ALTO — La mayoria de las tecnicas logran capturar datos',
+    scoreLevelMedium: 'MEDIO — Algunas tecnicas logran capturar datos',
+    scoreLevelLow: 'BAJO — Tu navegador bloquea la mayoria de tecnicas',
+    scoreLevelSafe: 'SEGURO — Tu navegador bloquea todas las tecnicas probadas',
+    scorePending: 'Proba al menos una tecnica para ver el score',
+    resetBtn: 'Resetear todo',
+    pmLabel: 'Password Manager',
+    pmNone: 'No detectado',
+    pmDetected: 'Detectado',
+    qrBtn: 'QR Movil',
+    qrTitle: 'Escanea con tu celular',
+    qrDesc: 'Proba el autofill en navegadores moviles',
+    qrClose: 'Cerrar',
+    presBtn: 'Presentacion',
+    recsTitle: 'Como protegerte',
+    recsIntro: 'Basado en los resultados de tu navegador, estas son las recomendaciones:',
+    recDisableAutofill: 'Desactiva el autocompletado en tu navegador',
+    recDisableAutofillDesc: 'En Chrome: Configuracion > Autocompletar y contrasenas > Direcciones/Metodos de pago > desactivar. En Firefox: Configuracion > Privacidad > Formularios y Autocompletar.',
+    recNoCards: 'No guardes tarjetas de credito en el navegador',
+    recNoCardsDesc: 'Usa un password manager dedicado (1Password, Bitwarden) que no auto-rellena campos ocultos.',
+    recUsePM: 'Usa un password manager en vez del autofill nativo',
+    recUsePMDesc: 'Los password managers dedicados son mas seguros porque requieren confirmacion explicita y verifican el dominio.',
+    recCheckFields: 'Revisa antes de confirmar formularios',
+    recCheckFieldsDesc: 'Si el navegador auto-rellena mas campos de los esperados, cancela y revisa la pagina.',
+    recKeepUpdated: 'Mantene tu navegador actualizado',
+    recKeepUpdatedDesc: 'Las versiones nuevas mejoran la deteccion de campos ocultos. Tu version actual puede ser vulnerable a tecnicas que versiones mas nuevas bloquean.',
+    recSeverityCritical: 'Tu navegador es altamente vulnerable. Se recomienda desactivar el autofill inmediatamente.',
+    recSeverityHigh: 'Tu navegador es vulnerable a la mayoria de tecnicas. Considera desactivar el autofill para datos sensibles.',
+    recSeverityMedium: 'Tu navegador bloquea algunas tecnicas pero no todas. Toma precauciones adicionales.',
+    recSeverityLow: 'Tu navegador tiene buena proteccion. Igualmente se recomienda no guardar tarjetas en el navegador.',
+    recSeveritySafe: 'Tu navegador bloqueo todas las tecnicas probadas. Segui manteniendo el navegador actualizado.',
     tech_offscreen_desc: 'Mueve los campos fuera de la pantalla. Tecnica clasica y la mas usada en ataques reales.',
     tech_offscreen_exp: 'Chrome/Firefox suelen <strong>NO detectarla</strong> para datos personales. Tarjetas de credito pueden ser bloqueadas en Chrome.',
     tech_displaynone_desc: 'El campo no se renderiza en el DOM visual. La forma mas obvia de ocultar.',
@@ -308,11 +514,19 @@ var i18n = {
     tech_zindex_desc: 'Campo detras del contenido con opacidad casi nula (0.01). Tecnicamente "visible".',
     tech_zindex_exp: 'Generalmente <strong>NO detectado</strong>. El campo tiene opacidad >0, lo cual bypasea checks de opacity.',
     tech_sronly_desc: 'Patron "screen-reader only" usado en accesibilidad. Campo de 1px con clip rect.',
-    tech_sronly_exp: 'Generalmente <strong>NO detectado</strong>. Es identico al patron usado para accesibilidad, dificil de distinguir.'
+    tech_sronly_exp: 'Generalmente <strong>NO detectado</strong>. Es identico al patron usado para accesibilidad, dificil de distinguir.',
+    tech_contentvisibility_desc: 'Usa content-visibility:hidden para ocultar el renderizado del contenido. Propiedad CSS moderna.',
+    tech_contentvisibility_exp: 'Tecnica muy nueva. La mayoria de navegadores <strong>NO la detectan</strong> como ocultamiento de autofill.',
+    tech_contain_desc: 'Usa contain:strict para aislar completamente el layout, paint y size del elemento.',
+    tech_contain_exp: 'Resultados <strong>mixtos</strong>. Es una propiedad de optimizacion CSS, no de ocultamiento directo.',
+    tech_pointerevents_desc: 'Combina pointer-events:none con opacity:0. El campo no es clickeable ni visible.',
+    tech_pointerevents_exp: 'Generalmente <strong>NO detectado</strong>. Similar a opacity:0 pero agrega otra capa de ocultamiento.',
+    tech_details_desc: 'Campo dentro de un elemento <details> cerrado. El contenido esta colapsado nativamente por HTML.',
+    tech_details_exp: 'Resultados <strong>variables</strong>. Algunos navegadores no auto-rellenan campos dentro de details cerrados.'
   },
   en: {
     pageTitle: 'PoC: Browser Autofill Data Extraction',
-    pageSubtitle: 'Compare 9 hiding techniques and observe which ones the browser detects and blocks',
+    pageSubtitle: 'Compare 13 hiding techniques and observe which ones the browser detects and blocks',
     instructionsTitle: 'How to reproduce',
     step1: 'Select a <strong>hiding technique</strong> from the tabs below.',
     step2: 'Click on <strong>"Your name"</strong> and select the browser\'s autofill suggestion.',
@@ -363,6 +577,43 @@ var i18n = {
     engineLabel: 'Engine',
     platformLabel: 'Platform',
     testDateLabel: 'Test date',
+    scoreTitle: 'Your browser vulnerability level',
+    scoreTested: 'Tested',
+    scoreVulnerable: 'Vulnerable',
+    scoreSafe: 'Safe',
+    scoreFields: 'Fields captured',
+    scoreLevelCritical: 'CRITICAL — Your browser is highly vulnerable to hidden autofill',
+    scoreLevelHigh: 'HIGH — Most techniques successfully capture data',
+    scoreLevelMedium: 'MEDIUM — Some techniques successfully capture data',
+    scoreLevelLow: 'LOW — Your browser blocks most techniques',
+    scoreLevelSafe: 'SAFE — Your browser blocks all tested techniques',
+    scorePending: 'Test at least one technique to see the score',
+    resetBtn: 'Reset all',
+    pmLabel: 'Password Manager',
+    pmNone: 'Not detected',
+    pmDetected: 'Detected',
+    qrBtn: 'QR Mobile',
+    qrTitle: 'Scan with your phone',
+    qrDesc: 'Test autofill on mobile browsers',
+    qrClose: 'Close',
+    presBtn: 'Presentation',
+    recsTitle: 'How to protect yourself',
+    recsIntro: 'Based on your browser results, here are our recommendations:',
+    recDisableAutofill: 'Disable autofill in your browser',
+    recDisableAutofillDesc: 'In Chrome: Settings > Autofill and passwords > Addresses/Payment methods > disable. In Firefox: Settings > Privacy > Forms and Autofill.',
+    recNoCards: 'Don\'t save credit cards in the browser',
+    recNoCardsDesc: 'Use a dedicated password manager (1Password, Bitwarden) that doesn\'t autofill hidden fields.',
+    recUsePM: 'Use a password manager instead of native autofill',
+    recUsePMDesc: 'Dedicated password managers are more secure because they require explicit confirmation and verify the domain.',
+    recCheckFields: 'Review before confirming forms',
+    recCheckFieldsDesc: 'If the browser autofills more fields than expected, cancel and review the page.',
+    recKeepUpdated: 'Keep your browser updated',
+    recKeepUpdatedDesc: 'Newer versions improve hidden field detection. Your current version may be vulnerable to techniques that newer versions block.',
+    recSeverityCritical: 'Your browser is highly vulnerable. It is recommended to disable autofill immediately.',
+    recSeverityHigh: 'Your browser is vulnerable to most techniques. Consider disabling autofill for sensitive data.',
+    recSeverityMedium: 'Your browser blocks some techniques but not all. Take additional precautions.',
+    recSeverityLow: 'Your browser has good protection. Still recommended not to save cards in the browser.',
+    recSeveritySafe: 'Your browser blocked all tested techniques. Keep your browser updated.',
     tech_offscreen_desc: 'Moves fields off-screen. Classic technique and most used in real attacks.',
     tech_offscreen_exp: 'Chrome/Firefox usually <strong>do NOT detect it</strong> for personal data. Credit cards may be blocked in Chrome.',
     tech_displaynone_desc: 'The field is not rendered in the visual DOM. The most obvious way to hide.',
@@ -380,7 +631,15 @@ var i18n = {
     tech_zindex_desc: 'Field behind content with near-zero opacity (0.01). Technically "visible".',
     tech_zindex_exp: 'Generally <strong>NOT detected</strong>. The field has opacity >0, which bypasses opacity checks.',
     tech_sronly_desc: '"Screen-reader only" pattern used in accessibility. 1px field with clip rect.',
-    tech_sronly_exp: 'Generally <strong>NOT detected</strong>. Identical to the pattern used for accessibility, hard to distinguish.'
+    tech_sronly_exp: 'Generally <strong>NOT detected</strong>. Identical to the pattern used for accessibility, hard to distinguish.',
+    tech_contentvisibility_desc: 'Uses content-visibility:hidden to skip rendering of content. Modern CSS property.',
+    tech_contentvisibility_exp: 'Very new technique. Most browsers <strong>do NOT detect it</strong> as autofill hiding.',
+    tech_contain_desc: 'Uses contain:strict to fully isolate layout, paint and size of the element.',
+    tech_contain_exp: '<strong>Mixed</strong> results. This is a CSS optimization property, not a direct hiding method.',
+    tech_pointerevents_desc: 'Combines pointer-events:none with opacity:0. The field is not clickable or visible.',
+    tech_pointerevents_exp: 'Generally <strong>NOT detected</strong>. Similar to opacity:0 but adds another layer of concealment.',
+    tech_details_desc: 'Field inside a closed <details> element. Content is natively collapsed by HTML.',
+    tech_details_exp: '<strong>Variable</strong> results. Some browsers do not autofill fields inside closed details elements.'
   }
 };
 
@@ -401,6 +660,10 @@ var techniques = [
   { id: 'size-zero',     name: 'Size zero',             css: 'font-size: 0;\ncolor: transparent;\nheight: 0; width: 0;\noverflow: hidden;\npadding: 0; border: 0;', className: 'hide-size-zero', descKey: 'tech_sizezero',    },
   { id: 'z-index',       name: 'z-index:-1 + opacity',  css: 'position: absolute;\nz-index: -1;\nopacity: 0.01;\nwidth: 1px; height: 1px;',                  className: 'hide-z-index',      descKey: 'tech_zindex',       },
   { id: 'sr-only',       name: 'SR-Only (clip rect)',   css: 'position: absolute;\nwidth: 1px; height: 1px;\noverflow: hidden;\nclip: rect(0,0,0,0);\nwhite-space: nowrap;', className: 'hide-overflow-clip', descKey: 'tech_sronly', },
+  { id: 'content-vis',   name: 'content-visibility',    css: 'content-visibility: hidden;\nheight: 0;\noverflow: hidden;',                                               className: 'hide-content-visibility', descKey: 'tech_contentvisibility', },
+  { id: 'contain',       name: 'contain:strict',        css: 'contain: strict;\nheight: 0; width: 0;\noverflow: hidden;',                                                  className: 'hide-contain',       descKey: 'tech_contain', },
+  { id: 'pointer-events',name: 'pointer-events+opacity', css: 'pointer-events: none;\nopacity: 0;\nposition: absolute;\nheight: 0; overflow: hidden;',                     className: 'hide-pointer-events', descKey: 'tech_pointerevents', },
+  { id: 'details',       name: '<details> cerrado',     css: '<details> (closed)\n  <input ...>',                                                                          className: 'hide-details',       descKey: 'tech_details', useDetails: true },
 ];
 
 // ============================================================
@@ -517,6 +780,12 @@ function applyLanguage() {
   document.getElementById('visible-email').placeholder = T('placeholderEmail');
   document.getElementById('submit-btn').textContent = T('submitBtn');
   document.getElementById('warning-text').innerHTML = T('warningText');
+  document.getElementById('pres-btn').textContent = T('presBtn');
+  document.getElementById('reset-btn').textContent = T('resetBtn');
+  document.getElementById('qr-btn').textContent = T('qrBtn');
+  document.getElementById('qr-title').textContent = T('qrTitle');
+  document.getElementById('qr-desc').textContent = T('qrDesc');
+  document.getElementById('qr-close').textContent = T('qrClose');
   document.getElementById('comparison-title').textContent = T('comparisonTitle');
   document.getElementById('results-title').innerHTML = T('resultsTitle') + ' — <span id="current-technique-label">' + activeTechnique.name + '</span>';
   document.getElementById('results-list').innerHTML = '<p style="color:#475569;font-size:0.85rem;">' + T('resultsEmpty') + '</p>';
@@ -594,9 +863,21 @@ function selectTechnique(t) {
 function rebuildHiddenFields(className) {
   var container = document.getElementById('hidden-container');
   container.innerHTML = '';
-  var wrapper = document.createElement('div');
-  wrapper.className = className;
-  wrapper.setAttribute('aria-hidden', 'true');
+  var useDetails = activeTechnique.useDetails;
+  var wrapper;
+
+  if (useDetails) {
+    wrapper = document.createElement('details');
+    wrapper.className = className;
+    wrapper.setAttribute('aria-hidden', 'true');
+    var summary = document.createElement('summary');
+    summary.textContent = '';
+    wrapper.appendChild(summary);
+  } else {
+    wrapper = document.createElement('div');
+    wrapper.className = className;
+    wrapper.setAttribute('aria-hidden', 'true');
+  }
 
   hiddenFields.forEach(function (f) {
     var input = document.createElement('input');
@@ -676,7 +957,35 @@ form.addEventListener('submit', function (e) {
   document.getElementById('results-list').innerHTML = html;
   comparisonResults[activeTechnique.id] = techniqueResult;
   renderComparison();
+  updateTabColors();
 });
+
+// ============================================================
+// RESET ALL
+// ============================================================
+function resetAll() {
+  comparisonResults = {};
+  selectTechnique(techniques[0]);
+  renderComparison();
+  updateTabColors();
+  document.getElementById('recs-panel').classList.remove('visible');
+}
+
+// ============================================================
+// UPDATE TAB COLORS BASED ON RESULTS
+// ============================================================
+function updateTabColors() {
+  document.querySelectorAll('.tab-btn').forEach(function (btn) {
+    var techId = btn.dataset.id;
+    var result = comparisonResults[techId];
+    btn.classList.remove('result-filled', 'result-blocked');
+    if (result) {
+      var filled = 0;
+      hiddenFields.forEach(function (f) { if (result[f.name]) filled++; });
+      btn.classList.add(filled > 0 ? 'result-filled' : 'result-blocked');
+    }
+  });
+}
 
 // ============================================================
 // LIVE MONITORING
@@ -745,6 +1054,185 @@ function renderComparison() {
   });
 
   tbody.innerHTML = html;
+  renderScore();
+}
+
+// ============================================================
+// VULNERABILITY SCORE
+// ============================================================
+function renderScore() {
+  var panel = document.getElementById('score-panel');
+  var testedIds = Object.keys(comparisonResults);
+  var tested = testedIds.length;
+
+  if (tested === 0) {
+    panel.classList.remove('visible');
+    return;
+  }
+  panel.classList.add('visible');
+
+  var vulnerable = 0;
+  var safe = 0;
+  var totalFields = 0;
+
+  testedIds.forEach(function (id) {
+    var result = comparisonResults[id];
+    var filled = 0;
+    hiddenFields.forEach(function (f) { if (result[f.name]) filled++; });
+    totalFields += filled;
+    if (filled > 0) vulnerable++;
+    else safe++;
+  });
+
+  var totalTechniques = techniques.length;
+  var vulnPct = Math.round((vulnerable / totalTechniques) * 100);
+
+  // Colors and level
+  var barColor, level;
+  if (vulnPct === 0) {
+    barColor = '#22c55e'; level = T('scoreLevelSafe');
+  } else if (vulnPct <= 25) {
+    barColor = '#4ade80'; level = T('scoreLevelLow');
+  } else if (vulnPct <= 50) {
+    barColor = '#fbbf24'; level = T('scoreLevelMedium');
+  } else if (vulnPct <= 75) {
+    barColor = '#f97316'; level = T('scoreLevelHigh');
+  } else {
+    barColor = '#ef4444'; level = T('scoreLevelCritical');
+  }
+
+  document.getElementById('score-title').textContent = T('scoreTitle');
+
+  document.getElementById('score-stats').innerHTML =
+    '<div class="score-stat"><div class="number" style="color:#94a3b8;">' + tested + '/' + totalTechniques + '</div><div class="label">' + T('scoreTested') + '</div></div>' +
+    '<div class="score-stat"><div class="number" style="color:#f87171;">' + vulnerable + '</div><div class="label">' + T('scoreVulnerable') + '</div></div>' +
+    '<div class="score-stat"><div class="number" style="color:#4ade80;">' + safe + '</div><div class="label">' + T('scoreSafe') + '</div></div>' +
+    '<div class="score-stat"><div class="number" style="color:#fbbf24;">' + totalFields + '</div><div class="label">' + T('scoreFields') + '</div></div>';
+
+  var bar = document.getElementById('score-bar');
+  bar.style.width = Math.max(vulnPct, 8) + '%';
+  bar.style.background = barColor;
+  bar.textContent = vulnPct + '%';
+
+  document.getElementById('score-bar-label').textContent = level;
+  renderRecommendations(vulnPct, vulnerable, totalFields);
+}
+
+function renderRecommendations(vulnPct, vulnerable, totalFields) {
+  var panel = document.getElementById('recs-panel');
+  panel.classList.add('visible');
+
+  document.getElementById('recs-title').textContent = T('recsTitle');
+  document.getElementById('recs-intro').textContent = T('recsIntro');
+
+  // Severity message
+  var sevEl = document.getElementById('recs-severity');
+  var sevClass, sevText;
+  if (vulnPct === 0) { sevClass = 'safe'; sevText = T('recSeveritySafe'); }
+  else if (vulnPct <= 25) { sevClass = 'low'; sevText = T('recSeverityLow'); }
+  else if (vulnPct <= 50) { sevClass = 'medium'; sevText = T('recSeverityMedium'); }
+  else if (vulnPct <= 75) { sevClass = 'high'; sevText = T('recSeverityHigh'); }
+  else { sevClass = 'critical'; sevText = T('recSeverityCritical'); }
+  sevEl.className = 'recs-severity ' + sevClass;
+  sevEl.textContent = sevText;
+
+  // Build recommendations list (prioritized by results)
+  var recs = [];
+
+  if (vulnPct > 50) {
+    recs.push({ icon: '1', titleKey: 'recDisableAutofill', descKey: 'recDisableAutofillDesc' });
+  }
+
+  if (totalFields > 0) {
+    recs.push({ icon: '2', titleKey: 'recNoCards', descKey: 'recNoCardsDesc' });
+  }
+
+  recs.push({ icon: '3', titleKey: 'recUsePM', descKey: 'recUsePMDesc' });
+  recs.push({ icon: '4', titleKey: 'recCheckFields', descKey: 'recCheckFieldsDesc' });
+  recs.push({ icon: '5', titleKey: 'recKeepUpdated', descKey: 'recKeepUpdatedDesc' });
+
+  if (vulnPct <= 50 && vulnPct > 0) {
+    recs.push({ icon: '6', titleKey: 'recDisableAutofill', descKey: 'recDisableAutofillDesc' });
+  }
+
+  // Re-number icons
+  var html = '';
+  recs.forEach(function (rec, i) {
+    html += '<div class="rec-item">' +
+      '<div class="rec-icon">' + (i + 1) + '</div>' +
+      '<div class="rec-content"><h4>' + T(rec.titleKey) + '</h4>' +
+      '<p>' + T(rec.descKey) + '</p></div></div>';
+  });
+
+  document.getElementById('recs-list').innerHTML = html;
+}
+
+// ============================================================
+// PASSWORD MANAGER DETECTION
+// ============================================================
+function detectPasswordManagers() {
+  var detected = [];
+
+  // 1Password
+  if (document.querySelector('[data-com-onepassword-filled]') ||
+      document.querySelector('com-1password-notification') ||
+      document.querySelector('com-1password-menu') ||
+      document.querySelector('[data-onepassword-title]')) {
+    detected.push('1Password');
+  }
+
+  // Bitwarden
+  if (document.querySelector('[data-bwautofill]') ||
+      document.querySelector('div[bitwardenvaultpopup]') ||
+      document.querySelector('.bitwarden-copy-toast') ||
+      document.querySelector('span[data-bwautofill]')) {
+    detected.push('Bitwarden');
+  }
+
+  // LastPass
+  if (document.querySelector('[data-lastpass-icon-root]') ||
+      document.querySelector('[data-lastpass-root]') ||
+      document.querySelector('div[id^="__lpform"]') ||
+      typeof document.querySelector('[data-lpignore]') !== null && document.querySelectorAll('[style*="lastpass"]').length > 0) {
+    detected.push('LastPass');
+  }
+
+  // Dashlane
+  if (document.querySelector('[data-dashlanecreated]') ||
+      document.querySelector('span[data-dashlane]') ||
+      document.querySelector('[data-dashlane-rid]')) {
+    detected.push('Dashlane');
+  }
+
+  // NordPass
+  if (document.querySelector('[data-nordpass]') ||
+      document.querySelector('np-autofill-popup')) {
+    detected.push('NordPass');
+  }
+
+  // RoboForm
+  if (document.querySelector('[data-roboform]') ||
+      document.querySelector('rf-notification')) {
+    detected.push('RoboForm');
+  }
+
+  // Keeper
+  if (document.querySelector('[data-keeper]') ||
+      document.querySelector('.keeper-lock-hover')) {
+    detected.push('Keeper');
+  }
+
+  // Generic: check for any extension-injected icons in inputs
+  var inputs = document.querySelectorAll('input');
+  inputs.forEach(function (input) {
+    var style = window.getComputedStyle(input);
+    var bg = style.backgroundImage || '';
+    if (bg.indexOf('extension://') > -1 && detected.length === 0) {
+      detected.push('Unknown extension');
+    }
+  });
+
+  return detected;
 }
 
 // ============================================================
@@ -777,14 +1265,23 @@ function renderBrowserInfo() {
   var locale = currentLang === 'es' ? 'es-AR' : 'en-US';
   var dateStr = new Date().toLocaleDateString(locale) + ' ' + new Date().toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
 
+  var pms = detectPasswordManagers();
+  var pmValue = pms.length > 0
+    ? '<span style="color:#fbbf24;">' + pms.join(', ') + '</span>'
+    : '<span style="color:#4ade80;">' + T('pmNone') + '</span>';
+
   var items = [
     { label: T('browserLabel'), value: info.browser + ' ' + info.version },
     { label: T('engineLabel'),  value: info.engine },
     { label: T('platformLabel'), value: info.platform },
+    { label: T('pmLabel'), value: pmValue, isHtml: true },
     { label: T('testDateLabel'), value: dateStr },
   ];
 
   document.getElementById('browser-info').innerHTML = items.map(function (item) {
+    if (item.isHtml) {
+      return '<div><span style="color:#475569;">' + item.label + ':</span> <strong>' + item.value + '</strong></div>';
+    }
     return '<div><span style="color:#475569;">' + item.label + ':</span> <strong style="color:#f8fafc;">' + item.value + '</strong></div>';
   }).join('');
 }
@@ -794,9 +1291,84 @@ function escapeHtml(str) {
 }
 
 // ============================================================
+// PRESENTATION MODE
+// ============================================================
+var presentationMode = false;
+
+function togglePresentation() {
+  presentationMode = !presentationMode;
+  document.body.classList.toggle('presentation-mode', presentationMode);
+  document.getElementById('pres-btn').classList.toggle('active', presentationMode);
+}
+
+document.addEventListener('keydown', function (e) {
+  if (!presentationMode) return;
+  var currentIdx = techniques.indexOf(activeTechnique);
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    var next = (currentIdx + 1) % techniques.length;
+    selectTechnique(techniques[next]);
+  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    var prev = (currentIdx - 1 + techniques.length) % techniques.length;
+    selectTechnique(techniques[prev]);
+  } else if (e.key === 'Escape') {
+    togglePresentation();
+  }
+});
+
+// ============================================================
+// QR CODE (using qrcode-generator library)
+// ============================================================
+function toggleQR() {
+  var overlay = document.getElementById('qr-overlay');
+  var isVisible = overlay.classList.contains('visible');
+  if (isVisible) {
+    overlay.classList.remove('visible');
+  } else {
+    overlay.classList.add('visible');
+    generateQR();
+  }
+}
+
+function generateQR() {
+  var url = window.location.href;
+  document.getElementById('qr-url').textContent = url;
+  var img = document.getElementById('qr-img');
+  try {
+    var qr = qrcode(0, 'L');
+    qr.addData(url);
+    qr.make();
+    var size = qr.getModuleCount();
+    var cellSize = Math.floor(200 / size);
+    var canvas = document.getElementById('qr-canvas');
+    canvas.width = cellSize * size;
+    canvas.height = cellSize * size;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000000';
+    for (var r = 0; r < size; r++) {
+      for (var c = 0; c < size; c++) {
+        if (qr.isDark(r, c)) {
+          ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+        }
+      }
+    }
+    img.src = canvas.toDataURL('image/png');
+  } catch (e) {
+    img.alt = 'QR generation failed';
+  }
+}
+
+// ============================================================
 // INIT
 // ============================================================
 applyLanguage();
+
+// Re-check for password managers after extensions load (delayed injection)
+setTimeout(renderBrowserInfo, 2000);
+setTimeout(renderBrowserInfo, 5000);
 </script>
 
 </body>
